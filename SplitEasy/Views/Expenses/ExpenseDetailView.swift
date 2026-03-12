@@ -24,22 +24,37 @@ struct ExpenseDetailView: View {
         }
     }
 
+    var isDifferentCurrency: Bool {
+        expense.currencyCode != group.defaultCurrencyCode
+    }
+
+    var displayAmountInMinorUnits: Int64 {
+        if !isDifferentCurrency { return expense.amountInMinorUnits }
+        guard expense.exchangeRateToBase > 0 else { return expense.amountInMinorUnits }
+        return Int64((Double(expense.amountInMinorUnits) / expense.exchangeRateToBase).rounded())
+    }
+
     var body: some View {
         List {
             // Header section
             Section {
                 VStack(spacing: 12) {
-                    Text(expense.expenseCategory.emoji)
-                        .font(.system(size: 48))
+                    CategoryIconView(category: expense.expenseCategory, size: 64)
 
                     Text(expense.title)
                         .font(.title2)
                         .fontWeight(.bold)
 
-                    Text(CurrencyFormatter.format(minorUnits: expense.amountInMinorUnits, currencyCode: expense.currencyCode))
+                    Text(CurrencyFormatter.format(minorUnits: displayAmountInMinorUnits, currencyCode: group.defaultCurrencyCode))
                         .font(.title)
                         .fontWeight(.bold)
                         .foregroundStyle(.primary)
+
+                    if isDifferentCurrency {
+                        Text("(\(CurrencyFormatter.format(minorUnits: expense.amountInMinorUnits, currencyCode: expense.currencyCode)))")
+                            .font(.subheadline)
+                            .foregroundStyle(.secondary)
+                    }
 
                     Text(expense.date.mediumFormatted)
                         .font(.subheadline)

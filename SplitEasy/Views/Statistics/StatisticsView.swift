@@ -12,23 +12,38 @@ struct StatisticsView: View {
         Decimal(group.totalExpensesInMinorUnits) / 100
     }
 
+    /// Convert an expense amount to the group's default currency
+    private func convertedAmount(_ expense: Expense) -> Int64 {
+        if expense.currencyCode == group.defaultCurrencyCode {
+            return expense.amountInMinorUnits
+        }
+        guard expense.exchangeRateToBase > 0 else { return expense.amountInMinorUnits }
+        return Int64((Double(expense.amountInMinorUnits) / expense.exchangeRateToBase).rounded())
+    }
+
     var categoryBreakdown: [(category: ExpenseCategory, total: Int64)] {
         var map: [ExpenseCategory: Int64] = [:]
         for expense in expenses {
-            map[expense.expenseCategory, default: 0] += expense.amountInMinorUnits
+            map[expense.expenseCategory, default: 0] += convertedAmount(expense)
         }
         return map.sorted { $0.value > $1.value }.map { ($0.key, $0.value) }
     }
 
+    /// Shows each member's share (split amounts), not who paid
     var memberSpending: [(member: Member, total: Int64)] {
         var map: [UUID: Int64] = [:]
         for expense in expenses {
-            if let payerID = expense.paidByMemberID {
-                map[payerID, default: 0] += expense.amountInMinorUnits
+            let conversionFactor: Double = expense.currencyCode == group.defaultCurrencyCode ? 1.0 :
+                (expense.exchangeRateToBase > 0 ? 1.0 / expense.exchangeRateToBase : 1.0)
+            for (index, memberID) in expense.splitMemberIDs.enumerated() {
+                if index < expense.splitAmountsInMinorUnits.count {
+                    let convertedSplit = Int64((Double(expense.splitAmountsInMinorUnits[index]) * conversionFactor).rounded())
+                    map[memberID, default: 0] += convertedSplit
+                }
             }
         }
         return group.activeMembers.compactMap { member in
-            guard let total = map[member.id] else { return nil }
+            guard let total = map[member.id], total > 0 else { return nil }
             return (member, total)
         }.sorted { $0.total > $1.total }
     }
@@ -40,7 +55,7 @@ struct StatisticsView: View {
 
         for expense in expenses {
             let key = formatter.string(from: expense.date)
-            map[key, default: 0] += expense.amountInMinorUnits
+            map[key, default: 0] += convertedAmount(expense)
         }
 
         return map.sorted { $0.key < $1.key }.compactMap { key, value in
@@ -107,7 +122,7 @@ struct StatisticsView: View {
                 // Spending by member
                 if !memberSpending.isEmpty {
                     VStack(alignment: .leading, spacing: AppSpacing.md) {
-                        Text("By Member (Paid)")
+                        Text("By Member (Share)")
                             .font(.headline)
                             .padding(.horizontal)
 

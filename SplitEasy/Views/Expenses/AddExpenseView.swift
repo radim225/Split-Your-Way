@@ -16,6 +16,8 @@ struct AddExpenseView: View {
     @State private var note = ""
     @State private var includedMemberIDs: Set<UUID> = []
     @State private var showMoreOptions = false
+    @State private var showCurrencyPicker = false
+    @State private var currencyService = CurrencyService()
 
     init(group: ExpenseGroup) {
         self.group = group
@@ -71,8 +73,18 @@ struct AddExpenseView: View {
                 // Amount & Title
                 Section("Expense Details") {
                     HStack {
-                        Text(CurrencyInfo.find(byCode: currencyCode)?.symbol ?? currencyCode)
-                            .foregroundStyle(.secondary)
+                        Button {
+                            showCurrencyPicker = true
+                        } label: {
+                            Text(CurrencyInfo.find(byCode: currencyCode)?.symbol ?? currencyCode)
+                                .font(.headline)
+                                .padding(.horizontal, 8)
+                                .padding(.vertical, 4)
+                                .background(Color(.systemGray5))
+                                .clipShape(RoundedRectangle(cornerRadius: 6))
+                        }
+                        .buttonStyle(.plain)
+
                         TextField("0.00", text: $amountText)
                             .keyboardType(.decimalPad)
                             .font(.title2)
@@ -159,6 +171,9 @@ struct AddExpenseView: View {
                     .fontWeight(.semibold)
                 }
             }
+            .sheet(isPresented: $showCurrencyPicker) {
+                CurrencyPickerView(selectedCode: $currencyCode)
+            }
             .onAppear {
                 if selectedPayerID == nil {
                     selectedPayerID = group.activeMembers.first?.id
@@ -166,6 +181,9 @@ struct AddExpenseView: View {
                 if includedMemberIDs.isEmpty {
                     includedMemberIDs = Set(group.activeMembers.map(\.id))
                 }
+            }
+            .task {
+                await currencyService.fetchRates(base: group.defaultCurrencyCode)
             }
         }
     }
@@ -176,10 +194,19 @@ struct AddExpenseView: View {
 
         let includedMembers = group.activeMembers.filter { includedMemberIDs.contains($0.id) }
 
+        // Calculate exchange rate from expense currency to group base currency
+        var exchangeRate = 1.0
+        if currencyCode != group.defaultCurrencyCode {
+            if let rate = currencyService.rate(from: group.defaultCurrencyCode, to: currencyCode) {
+                exchangeRate = rate
+            }
+        }
+
         let expense = Expense(
             title: title.trimmingCharacters(in: .whitespaces),
             amountInMinorUnits: amount,
             currencyCode: currencyCode,
+            exchangeRateToBase: exchangeRate,
             date: date,
             category: category,
             splitType: .equal,

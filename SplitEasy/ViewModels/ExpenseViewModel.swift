@@ -57,24 +57,33 @@ final class ExpenseViewModel {
         try? modelContext.save()
     }
 
+    /// Convert an expense amount to the group's default currency (minor units)
+    private func convertToGroupCurrency(_ amount: Int64, expense: Expense, group: ExpenseGroup) -> Int64 {
+        if expense.currencyCode == group.defaultCurrencyCode {
+            return amount
+        }
+        guard expense.exchangeRateToBase > 0 else { return amount }
+        return Int64((Double(amount) / expense.exchangeRateToBase).rounded())
+    }
+
     func memberBalance(memberID: UUID, in group: ExpenseGroup) -> Decimal {
         var balance: Int64 = 0
 
         for expense in group.expenses {
-            // Amount this member paid
+            // Amount this member paid (converted to group currency)
             if expense.paidByMemberID == memberID {
-                balance += expense.amountInMinorUnits
+                balance += convertToGroupCurrency(expense.amountInMinorUnits, expense: expense, group: group)
             }
 
-            // Amount this member owes
+            // Amount this member owes (converted to group currency)
             if let index = expense.splitMemberIDs.firstIndex(of: memberID),
                index < expense.splitAmountsInMinorUnits.count
             {
-                balance -= expense.splitAmountsInMinorUnits[index]
+                balance -= convertToGroupCurrency(expense.splitAmountsInMinorUnits[index], expense: expense, group: group)
             }
         }
 
-        // Account for settlements
+        // Account for settlements (already in group currency)
         for settlement in group.settlements where settlement.isSettled {
             if settlement.fromMemberID == memberID {
                 balance -= settlement.amountInMinorUnits

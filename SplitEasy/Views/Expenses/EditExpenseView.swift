@@ -16,6 +16,8 @@ struct EditExpenseView: View {
     @State private var selectedPayerID: UUID?
     @State private var note: String
     @State private var includedMemberIDs: Set<UUID>
+    @State private var showCurrencyPicker = false
+    @State private var currencyService = CurrencyService()
 
     init(expense: Expense, group: ExpenseGroup) {
         self.expense = expense
@@ -72,8 +74,18 @@ struct EditExpenseView: View {
 
                 Section("Expense Details") {
                     HStack {
-                        Text(CurrencyInfo.find(byCode: currencyCode)?.symbol ?? currencyCode)
-                            .foregroundStyle(.secondary)
+                        Button {
+                            showCurrencyPicker = true
+                        } label: {
+                            Text(CurrencyInfo.find(byCode: currencyCode)?.symbol ?? currencyCode)
+                                .font(.headline)
+                                .padding(.horizontal, 8)
+                                .padding(.vertical, 4)
+                                .background(Color(.systemGray5))
+                                .clipShape(RoundedRectangle(cornerRadius: 6))
+                        }
+                        .buttonStyle(.plain)
+
                         TextField("0.00", text: $amountText)
                             .keyboardType(.decimalPad)
                             .font(.title2)
@@ -127,6 +139,12 @@ struct EditExpenseView: View {
                         .fontWeight(.semibold)
                 }
             }
+            .sheet(isPresented: $showCurrencyPicker) {
+                CurrencyPickerView(selectedCode: $currencyCode)
+            }
+            .task {
+                await currencyService.fetchRates(base: group.defaultCurrencyCode)
+            }
         }
     }
 
@@ -140,6 +158,15 @@ struct EditExpenseView: View {
         expense.expenseCategory = category
         expense.paidByMemberID = selectedPayerID
         expense.note = note.isEmpty ? nil : note
+
+        // Update exchange rate if currency changed
+        if currencyCode != group.defaultCurrencyCode {
+            if let rate = currencyService.rate(from: group.defaultCurrencyCode, to: currencyCode) {
+                expense.exchangeRateToBase = rate
+            }
+        } else {
+            expense.exchangeRateToBase = 1.0
+        }
 
         let includedMembers = group.activeMembers.filter { includedMemberIDs.contains($0.id) }
         let (ids, amounts) = SplitCalculator.calculateEqual(total: amount, memberIDs: includedMembers.map(\.id))

@@ -330,13 +330,22 @@ struct ExpenseRowView: View {
         group.members.first { $0.id == expense.paidByMemberID }?.name ?? "Unknown"
     }
 
+    /// Amount converted to group's default currency (in minor units)
+    var displayAmountInMinorUnits: Int64 {
+        if expense.currencyCode == group.defaultCurrencyCode {
+            return expense.amountInMinorUnits
+        }
+        guard expense.exchangeRateToBase > 0 else { return expense.amountInMinorUnits }
+        return Int64((Double(expense.amountInMinorUnits) / expense.exchangeRateToBase).rounded())
+    }
+
+    var isDifferentCurrency: Bool {
+        expense.currencyCode != group.defaultCurrencyCode
+    }
+
     var body: some View {
         HStack(spacing: AppSpacing.md) {
-            Text(expense.expenseCategory.emoji)
-                .font(.title3)
-                .frame(width: 40, height: 40)
-                .background(Color(.systemGray6))
-                .clipShape(RoundedRectangle(cornerRadius: AppCornerRadius.sm))
+            CategoryIconView(category: expense.expenseCategory, size: 40)
 
             VStack(alignment: .leading, spacing: 2) {
                 Text(expense.title)
@@ -350,9 +359,17 @@ struct ExpenseRowView: View {
 
             Spacer()
 
-            Text(CurrencyFormatter.format(minorUnits: expense.amountInMinorUnits, currencyCode: expense.currencyCode))
-                .font(.subheadline)
-                .fontWeight(.semibold)
+            VStack(alignment: .trailing, spacing: 2) {
+                Text(CurrencyFormatter.format(minorUnits: displayAmountInMinorUnits, currencyCode: group.defaultCurrencyCode))
+                    .font(.subheadline)
+                    .fontWeight(.semibold)
+
+                if isDifferentCurrency {
+                    Text(CurrencyFormatter.format(minorUnits: expense.amountInMinorUnits, currencyCode: expense.currencyCode))
+                        .font(.caption2)
+                        .foregroundStyle(.secondary)
+                }
+            }
         }
         .padding(.vertical, 2)
     }

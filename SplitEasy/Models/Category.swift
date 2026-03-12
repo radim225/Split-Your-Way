@@ -66,4 +66,21 @@ enum ExpenseCategory: String, Codable, CaseIterable, Identifiable {
         case .other: "shippingbox"
         }
     }
+
+    var colorHex: String {
+        switch self {
+        case .food: "#FF9500"
+        case .transport: "#007AFF"
+        case .accommodation: "#AF52DE"
+        case .entertainment: "#FF2D55"
+        case .groceries: "#34C759"
+        case .health: "#FF3B30"
+        case .education: "#5856D6"
+        case .rent: "#8E8E93"
+        case .utilities: "#FFCC00"
+        case .work: "#00C7BE"
+        case .gifts: "#FF6482"
+        case .other: "#636366"
+        }
+    }
 }
