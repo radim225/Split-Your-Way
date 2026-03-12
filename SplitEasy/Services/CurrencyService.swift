@@ -40,11 +40,18 @@ final class CurrencyService {
         error = nil
 
         do {
-            let url = URL(string: "https://v6.exchangerate-api.com/v6/\(apiKey)/latest/\(base)")!
+            // fxratesapi.com API
+            let urlString = "https://api.fxratesapi.com/latest?base=\(base)&api_key=\(apiKey)"
+            let url = URL(string: urlString)!
             let (data, _) = try await URLSession.shared.data(from: url)
 
-            let response = try JSONDecoder().decode(ExchangeRateResponse.self, from: data)
-            rates = response.conversionRates
+            let response = try JSONDecoder().decode(FxRatesResponse.self, from: data)
+            guard response.success else {
+                self.error = "API returned unsuccessful response"
+                isLoading = false
+                return
+            }
+            rates = response.rates
             lastUpdated = Date()
 
             // Cache
@@ -75,10 +82,8 @@ final class CurrencyService {
     }
 }
 
-private struct ExchangeRateResponse: Decodable {
-    let conversionRates: [String: Double]
-
-    enum CodingKeys: String, CodingKey {
-        case conversionRates = "conversion_rates"
-    }
+private struct FxRatesResponse: Decodable {
+    let success: Bool
+    let base: String?
+    let rates: [String: Double]
 }

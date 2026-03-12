@@ -19,6 +19,11 @@ struct AddExpenseView: View {
     @State private var showCurrencyPicker = false
     @State private var currencyService = CurrencyService()
 
+    // Manual split state
+    @State private var isManualSplit = false
+    @State private var manualAmounts: [UUID: String] = [:]
+    @State private var lockedMembers: Set<UUID> = []
+
     init(group: ExpenseGroup) {
         self.group = group
         _currencyCode = State(initialValue: group.defaultCurrencyCode)
@@ -35,6 +40,16 @@ struct AddExpenseView: View {
             amountInMinorUnits != nil &&
             selectedPayerID != nil &&
             includedMemberIDs.count >= 1
+    }
+
+    var totalAssigned: Int64 {
+        var total: Int64 = 0
+        for memberID in includedMemberIDs {
+            if let text = manualAmounts[memberID], let value = Decimal(string: text) {
+                total += NSDecimalNumber(decimal: value * 100).int64Value
+            }
+        }
+        return total
     }
 
     var body: some View {
@@ -90,6 +105,13 @@ struct AddExpenseView: View {
                             .font(.title2)
                             .fontWeight(.semibold)
                             .accessibilityLabel("Amount")
+                            .onChange(of: amountText) {
+                                if !isManualSplit {
+                                    recalculateEqualSplit()
+                                } else {
+                                    redistributeUnlocked()
+                                }
+                            }
                     }
 
                     TextField("What was it for?", text: $title)
@@ -107,20 +129,79 @@ struct AddExpenseView: View {
 
                 // Split among
                 Section {
+                    // Split mode toggle
+                    Toggle(isOn: $isManualSplit) {
+                        Label("Custom Split", systemImage: "slider.horizontal.3")
+                    }
+                    .onChange(of: isManualSplit) {
+                        if !isManualSplit {
+                            lockedMembers.removeAll()
+                            recalculateEqualSplit()
+                        }
+                    }
+
                     ForEach(group.activeMembers) { member in
-                        Toggle(isOn: Binding(
-                            get: { includedMemberIDs.contains(member.id) },
-                            set: { included in
-                                if included {
-                                    includedMemberIDs.insert(member.id)
-                                } else {
-                                    includedMemberIDs.remove(member.id)
+                        if isManualSplit {
+                            HStack {
+                                Toggle(isOn: Binding(
+                                    get: { includedMemberIDs.contains(member.id) },
+                                    set: { included in
+                                        if included {
+                                            includedMemberIDs.insert(member.id)
+                                        } else {
+                                            includedMemberIDs.remove(member.id)
+                                            manualAmounts.removeValue(forKey: member.id)
+                                            lockedMembers.remove(member.id)
+                                        }
+                                        redistributeUnlocked()
+                                    }
+                                )) {
+                                    HStack {
+                                        MemberAvatarView(member: member, size: 28)
+                                        Text(member.name)
+                                            .font(.subheadline)
+                                    }
+                                }
+
+                                if includedMemberIDs.contains(member.id) {
+                                    let currencySymbol = CurrencyInfo.find(byCode: currencyCode)?.symbol ?? currencyCode
+                                    HStack(spacing: 4) {
+                                        Text(currencySymbol)
+                                            .font(.subheadline)
+                                            .foregroundStyle(.secondary)
+                                        TextField("0", text: Binding(
+                                            get: { manualAmounts[member.id] ?? "0" },
+                                            set: { newValue in
+                                                manualAmounts[member.id] = newValue
+                                                lockedMembers.insert(member.id)
+                                                redistributeUnlocked()
+                                            }
+                                        ))
+                                        .keyboardType(.decimalPad)
+                                        .font(.subheadline)
+                                        .fontWeight(.medium)
+                                        .multilineTextAlignment(.trailing)
+                                        .frame(width: 70)
+                                    }
                                 }
                             }
-                        )) {
-                            HStack {
-                                MemberAvatarView(member: member, size: 28)
-                                Text(member.name)
+                        } else {
+                            Toggle(isOn: Binding(
+                                get: { includedMemberIDs.contains(member.id) },
+                                set: { included in
+                                    if included {
+                                        includedMemberIDs.insert(member.id)
+                                    } else {
+                                        includedMemberIDs.remove(member.id)
+                                        manualAmounts.removeValue(forKey: member.id)
+                                    }
+                                    recalculateEqualSplit()
+                                }
+                            )) {
+                                HStack {
+                                    MemberAvatarView(member: member, size: 28)
+                                    Text(member.name)
+                                }
                             }
                         }
                     }
@@ -133,7 +214,16 @@ struct AddExpenseView: View {
                             .foregroundStyle(.secondary)
                     }
                 } footer: {
-                    if let amount = amountInMinorUnits, includedMemberIDs.count > 0 {
+                    if isManualSplit, let total = amountInMinorUnits {
+                        let remaining = Decimal(total - totalAssigned) / 100
+                        if remaining != 0 {
+                            Text("Remaining: \(CurrencyFormatter.format(remaining, currencyCode: currencyCode))")
+                                .foregroundStyle(remaining < 0 ? .red : .orange)
+                        } else {
+                            Text("Split adds up correctly ✓")
+                                .foregroundStyle(.green)
+                        }
+                    } else if !isManualSplit, let amount = amountInMinorUnits, includedMemberIDs.count > 0 {
                         let perPerson = Decimal(amount / Int64(includedMemberIDs.count)) / 100
                         Text("Equal split: \(CurrencyFormatter.format(perPerson, currencyCode: currencyCode)) per person")
                     }
@@ -180,10 +270,50 @@ struct AddExpenseView: View {
                 }
                 if includedMemberIDs.isEmpty {
                     includedMemberIDs = Set(group.activeMembers.map(\.id))
+                    recalculateEqualSplit()
                 }
             }
             .task {
                 await currencyService.fetchRates(base: group.defaultCurrencyCode)
+            }
+        }
+    }
+
+    private func recalculateEqualSplit() {
+        guard let total = amountInMinorUnits, !includedMemberIDs.isEmpty else { return }
+        let memberIDs = group.activeMembers.filter { includedMemberIDs.contains($0.id) }.map(\.id)
+        let (_, amounts) = SplitCalculator.calculateEqual(total: total, memberIDs: memberIDs)
+        for (index, id) in memberIDs.enumerated() {
+            if index < amounts.count {
+                let decimal = Decimal(amounts[index]) / 100
+                manualAmounts[id] = "\(NSDecimalNumber(decimal: decimal))"
+            }
+        }
+    }
+
+    private func redistributeUnlocked() {
+        guard let total = amountInMinorUnits else { return }
+
+        let includedIDs = group.activeMembers.filter { includedMemberIDs.contains($0.id) }.map(\.id)
+        guard !includedIDs.isEmpty else { return }
+
+        var lockedTotal: Int64 = 0
+        for id in includedIDs where lockedMembers.contains(id) {
+            if let text = manualAmounts[id], let value = Decimal(string: text) {
+                lockedTotal += NSDecimalNumber(decimal: value * 100).int64Value
+            }
+        }
+
+        let unlockedIDs = includedIDs.filter { !lockedMembers.contains($0) }
+        guard !unlockedIDs.isEmpty else { return }
+
+        let remaining = total - lockedTotal
+        let (_, amounts) = SplitCalculator.calculateEqual(total: max(remaining, 0), memberIDs: unlockedIDs)
+
+        for (index, id) in unlockedIDs.enumerated() {
+            if index < amounts.count {
+                let decimal = Decimal(amounts[index]) / 100
+                manualAmounts[id] = "\(NSDecimalNumber(decimal: decimal))"
             }
         }
     }
@@ -209,15 +339,27 @@ struct AddExpenseView: View {
             exchangeRateToBase: exchangeRate,
             date: date,
             category: category,
-            splitType: .equal,
+            splitType: isManualSplit ? .exactAmount : .equal,
             paidByMemberID: payerID,
             note: note.isEmpty ? nil : note
         )
         expense.group = group
 
-        let (ids, amounts) = SplitCalculator.calculateEqual(total: amount, memberIDs: includedMembers.map(\.id))
-        expense.splitMemberIDs = ids
-        expense.splitAmountsInMinorUnits = amounts
+        let memberIDs = includedMembers.map(\.id)
+
+        if isManualSplit {
+            expense.splitMemberIDs = memberIDs
+            expense.splitAmountsInMinorUnits = memberIDs.map { id in
+                if let text = manualAmounts[id], let value = Decimal(string: text) {
+                    return NSDecimalNumber(decimal: value * 100).int64Value
+                }
+                return 0
+            }
+        } else {
+            let (ids, amounts) = SplitCalculator.calculateEqual(total: amount, memberIDs: memberIDs)
+            expense.splitMemberIDs = ids
+            expense.splitAmountsInMinorUnits = amounts
+        }
 
         modelContext.insert(expense)
         try? modelContext.save()
