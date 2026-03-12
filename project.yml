@@ -11,6 +11,8 @@ settings:
     GENERATE_INFOPLIST_FILE: true
     CURRENT_PROJECT_VERSION: "1"
     MARKETING_VERSION: "0.1.0"
+    CODE_SIGN_STYLE: Automatic
+    DEVELOPMENT_TEAM: N3Y8QAD24R
 
 targets:
   SplitEasy:
@@ -26,6 +28,8 @@ targets:
         optional: true
     settings:
       base:
+        CODE_SIGN_IDENTITY: "Apple Development"
+        PRODUCT_BUNDLE_IDENTIFIER: com.radimsoukal.SplitEasy
         INFOPLIST_KEY_UIApplicationSceneManifest_Generation: true
         INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents: true
         INFOPLIST_KEY_UILaunchScreen_Generation: true

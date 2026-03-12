@@ -14,13 +14,14 @@ final class GroupViewModel {
         self.modelContext = modelContext
     }
 
-    func fetchGroups() -> [ExpenseGroup] {
+    func fetchGroups(profileID: UUID) -> [ExpenseGroup] {
         var descriptor = FetchDescriptor<ExpenseGroup>(
+            predicate: #Predicate<ExpenseGroup> { group in
+                group.profileID == profileID && !group.isArchived
+            },
             sortBy: [SortDescriptor(\.createdAt, order: .reverse)]
         )
-        descriptor.predicate = #Predicate<ExpenseGroup> { group in
-            !group.isArchived
-        }
+        descriptor.fetchLimit = 100
 
         let groups = (try? modelContext.fetch(descriptor)) ?? []
 
@@ -30,12 +31,13 @@ final class GroupViewModel {
         return groups.filter { $0.name.localizedCaseInsensitiveContains(searchText) }
     }
 
-    func createGroup(name: String, emoji: String, colorHex: String, currencyCode: String, memberNames: [String]) -> ExpenseGroup {
+    func createGroup(name: String, emoji: String, colorHex: String, currencyCode: String, memberNames: [String], profileID: UUID) -> ExpenseGroup {
         let group = ExpenseGroup(
             name: name,
             emoji: emoji,
             colorHex: colorHex,
-            defaultCurrencyCode: currencyCode
+            defaultCurrencyCode: currencyCode,
+            profileID: profileID
         )
         modelContext.insert(group)
 
@@ -74,9 +76,5 @@ final class GroupViewModel {
     func renameMember(_ member: Member, to newName: String) {
         member.name = newName
         try? modelContext.save()
-    }
-
-    func seedSampleDataIfNeeded() {
-        SampleDataService.loadIfNeeded(context: modelContext)
     }
 }

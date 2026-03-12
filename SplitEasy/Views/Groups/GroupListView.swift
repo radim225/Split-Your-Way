@@ -3,13 +3,15 @@ import SwiftUI
 
 struct GroupListView: View {
     @Environment(\.modelContext) private var modelContext
-    @Query(filter: #Predicate<ExpenseGroup> { !$0.isArchived },
-           sort: \ExpenseGroup.createdAt, order: .reverse)
-    private var groups: [ExpenseGroup]
 
+    let profileID: UUID
+    let profile: UserProfile
+    var onSwitchProfile: (() -> Void)?
+
+    @State private var groups: [ExpenseGroup] = []
     @State private var searchText = ""
     @State private var showCreateSheet = false
-    @State private var hasSeeded = false
+    @State private var showSettings = false
 
     var filteredGroups: [ExpenseGroup] {
         if searchText.isEmpty { return groups }
@@ -19,16 +21,21 @@ struct GroupListView: View {
     var body: some View {
         NavigationStack {
             Group {
-                if filteredGroups.isEmpty {
+                if filteredGroups.isEmpty && searchText.isEmpty {
                     ContentUnavailableView {
-                        Label("No Groups", systemImage: "person.3")
+                        Label("No Trips Yet", systemImage: "airplane.departure")
                     } description: {
-                        Text("Create a group to start splitting expenses.")
+                        Text("Create your first trip to start splitting expenses with friends.")
                     } actions: {
-                        Button("Create Group") {
+                        Button {
                             showCreateSheet = true
+                        } label: {
+                            Label("Create Trip", systemImage: "plus")
                         }
+                        .buttonStyle(.borderedProminent)
                     }
+                } else if filteredGroups.isEmpty {
+                    ContentUnavailableView.search(text: searchText)
                 } else {
                     List {
                         ForEach(filteredGroups) { group in
@@ -40,31 +47,59 @@ struct GroupListView: View {
                     }
                 }
             }
-            .navigationTitle("SplitEasy")
-            .searchable(text: $searchText, prompt: "Search groups")
+            .navigationTitle("My Trips")
+            .searchable(text: $searchText, prompt: "Search trips")
             .toolbar {
+                ToolbarItem(placement: .topBarLeading) {
+                    Button {
+                        showSettings = true
+                    } label: {
+                        Text(profile.initials)
+                            .font(.system(size: 14, weight: .bold))
+                            .foregroundStyle(.white)
+                            .frame(width: 32, height: 32)
+                            .background(Color(hex: profile.avatarColor))
+                            .clipShape(Circle())
+                    }
+                    .accessibilityLabel("Settings")
+                }
                 ToolbarItem(placement: .primaryAction) {
                     Button {
                         showCreateSheet = true
                     } label: {
                         Image(systemName: "plus")
                     }
-                    .accessibilityLabel("Create new group")
+                    .accessibilityLabel("Create new trip")
                 }
             }
             .sheet(isPresented: $showCreateSheet) {
-                GroupCreateView()
+                GroupCreateView(profileID: profileID)
+            }
+            .sheet(isPresented: $showSettings) {
+                SettingsView(profile: profile, onSwitchProfile: onSwitchProfile)
             }
             .navigationDestination(for: ExpenseGroup.self) { group in
                 GroupDetailView(group: group)
             }
-            .onAppear {
-                if !hasSeeded {
-                    SampleDataService.loadIfNeeded(context: modelContext)
-                    hasSeeded = true
-                }
+            .task {
+                loadGroups()
+            }
+            .onChange(of: showCreateSheet) {
+                if !showCreateSheet { loadGroups() }
             }
         }
+    }
+
+    private func loadGroups() {
+        let pid = profileID
+        var descriptor = FetchDescriptor<ExpenseGroup>(
+            predicate: #Predicate<ExpenseGroup> { group in
+                group.profileID == pid && !group.isArchived
+            },
+            sortBy: [SortDescriptor(\.createdAt, order: .reverse)]
+        )
+        descriptor.fetchLimit = 100
+        groups = (try? modelContext.fetch(descriptor)) ?? []
     }
 
     private func deleteGroups(at offsets: IndexSet) {
@@ -72,6 +107,7 @@ struct GroupListView: View {
             modelContext.delete(filteredGroups[index])
         }
         try? modelContext.save()
+        loadGroups()
     }
 }
 
@@ -105,6 +141,6 @@ struct GroupRowView: View {
         }
         .padding(.vertical, 4)
         .accessibilityElement(children: .combine)
-        .accessibilityLabel("\(group.name) group, \(group.activeMembers.count) members, total \(CurrencyFormatter.format(minorUnits: group.totalExpensesInMinorUnits, currencyCode: group.defaultCurrencyCode))")
+        .accessibilityLabel("\(group.name), \(group.activeMembers.count) members, total \(CurrencyFormatter.format(minorUnits: group.totalExpensesInMinorUnits, currencyCode: group.defaultCurrencyCode))")
     }
 }

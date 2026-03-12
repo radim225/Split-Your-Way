@@ -5,6 +5,8 @@ struct GroupCreateView: View {
     @Environment(\.modelContext) private var modelContext
     @Environment(\.dismiss) private var dismiss
 
+    let profileID: UUID
+
     @State private var name = ""
     @State private var emoji = "👥"
     @State private var colorHex = "#007AFF"
@@ -141,7 +143,8 @@ struct GroupCreateView: View {
             emoji: emoji,
             colorHex: colorHex,
             currencyCode: currencyCode,
-            memberNames: validNames
+            memberNames: validNames,
+            profileID: profileID
         )
         dismiss()
     }

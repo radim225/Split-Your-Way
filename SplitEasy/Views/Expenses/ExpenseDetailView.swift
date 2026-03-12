@@ -9,6 +9,7 @@ struct ExpenseDetailView: View {
     let group: ExpenseGroup
 
     @State private var showDeleteConfirmation = false
+    @State private var showEditSheet = false
 
     var paidByMember: Member? {
         group.members.first { $0.id == expense.paidByMemberID }
@@ -101,6 +102,12 @@ struct ExpenseDetailView: View {
 
             // Actions
             Section {
+                Button {
+                    showEditSheet = true
+                } label: {
+                    Label("Edit Expense", systemImage: "pencil")
+                }
+
                 Button(role: .destructive) {
                     showDeleteConfirmation = true
                 } label: {
@@ -110,6 +117,9 @@ struct ExpenseDetailView: View {
         }
         .navigationTitle("Expense Details")
         .navigationBarTitleDisplayMode(.inline)
+        .sheet(isPresented: $showEditSheet) {
+            EditExpenseView(expense: expense, group: group)
+        }
         .confirmationDialog("Delete this expense?", isPresented: $showDeleteConfirmation, titleVisibility: .visible) {
             Button("Delete", role: .destructive) {
                 modelContext.delete(expense)

@@ -10,6 +10,7 @@ final class ExpenseGroup {
     var defaultCurrencyCode: String
     var createdAt: Date
     var isArchived: Bool
+    var profileID: UUID?
 
     @Relationship(deleteRule: .cascade, inverse: \Member.group)
     var members: [Member]
@@ -24,13 +25,15 @@ final class ExpenseGroup {
         name: String,
         emoji: String = "👥",
         colorHex: String = "#007AFF",
-        defaultCurrencyCode: String = "USD"
+        defaultCurrencyCode: String = "USD",
+        profileID: UUID? = nil
     ) {
         self.id = UUID()
         self.name = name
         self.emoji = emoji
         self.colorHex = colorHex
         self.defaultCurrencyCode = defaultCurrencyCode
+        self.profileID = profileID
         self.createdAt = Date()
         self.isArchived = false
         self.members = []

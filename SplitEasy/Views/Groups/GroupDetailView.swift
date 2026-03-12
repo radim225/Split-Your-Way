@@ -8,6 +8,10 @@ struct GroupDetailView: View {
     @State private var selectedTab = 0
     @State private var showAddExpense = false
     @State private var showManageMembers = false
+    @State private var showSettleUp = false
+    @State private var showStatistics = false
+    @State private var showExportShare = false
+    @State private var exportURL: URL?
 
     var sortedExpenses: [Expense] {
         group.expenses.sorted { $0.date > $1.date }
@@ -15,7 +19,7 @@ struct GroupDetailView: View {
 
     var body: some View {
         VStack(spacing: 0) {
-            // Header
+            // Enhanced header
             GroupHeaderView(group: group)
 
             // Tab picker
@@ -25,7 +29,8 @@ struct GroupDetailView: View {
                 Text("Balances").tag(2)
             }
             .pickerStyle(.segmented)
-            .padding()
+            .padding(.horizontal)
+            .padding(.vertical, AppSpacing.sm)
 
             // Tab content
             switch selectedTab {
@@ -49,21 +54,86 @@ struct GroupDetailView: View {
                     } label: {
                         Label("Add Expense", systemImage: "plus.circle")
                     }
+
                     Button {
                         showManageMembers = true
                     } label: {
                         Label("Manage Members", systemImage: "person.2.badge.gearshape")
+                    }
+
+                    Divider()
+
+                    Button {
+                        showSettleUp = true
+                    } label: {
+                        Label("Settle Up", systemImage: "arrow.left.arrow.right")
+                    }
+
+                    Button {
+                        showStatistics = true
+                    } label: {
+                        Label("Statistics", systemImage: "chart.bar")
+                    }
+
+                    Divider()
+
+                    Button {
+                        exportCSV()
+                    } label: {
+                        Label("Export CSV", systemImage: "square.and.arrow.up")
                     }
                 } label: {
                     Image(systemName: "ellipsis.circle")
                 }
             }
         }
+        .overlay(alignment: .bottomTrailing) {
+            // Floating add button
+            Button {
+                showAddExpense = true
+            } label: {
+                Image(systemName: "plus")
+                    .font(.title2)
+                    .fontWeight(.semibold)
+                    .foregroundStyle(.white)
+                    .frame(width: 56, height: 56)
+                    .background(Color.accentColor)
+                    .clipShape(Circle())
+                    .shadow(color: .accentColor.opacity(0.3), radius: 8, x: 0, y: 4)
+            }
+            .padding(.trailing, AppSpacing.xl)
+            .padding(.bottom, AppSpacing.xl)
+        }
         .sheet(isPresented: $showAddExpense) {
             AddExpenseView(group: group)
         }
         .sheet(isPresented: $showManageMembers) {
             MemberManageView(group: group)
+        }
+        .sheet(isPresented: $showSettleUp) {
+            NavigationStack {
+                SettleUpView(group: group)
+                    .toolbar {
+                        ToolbarItem(placement: .confirmationAction) {
+                            Button("Done") { showSettleUp = false }
+                        }
+                    }
+            }
+        }
+        .sheet(isPresented: $showStatistics) {
+            NavigationStack {
+                StatisticsView(group: group)
+                    .toolbar {
+                        ToolbarItem(placement: .confirmationAction) {
+                            Button("Done") { showStatistics = false }
+                        }
+                    }
+            }
+        }
+        .sheet(isPresented: $showExportShare) {
+            if let exportURL {
+                ShareSheet(items: [exportURL])
+            }
         }
     }
 
@@ -72,14 +142,13 @@ struct GroupDetailView: View {
     private var expensesTab: some View {
         Group {
             if sortedExpenses.isEmpty {
-                ContentUnavailableView {
-                    Label("No Expenses", systemImage: "creditcard")
-                } description: {
-                    Text("Add an expense to get started.")
-                } actions: {
-                    Button("Add Expense") {
-                        showAddExpense = true
-                    }
+                EmptyStateView(
+                    icon: "creditcard",
+                    title: "No Expenses Yet",
+                    subtitle: "Add an expense to start tracking who owes what.",
+                    actionTitle: "Add Expense"
+                ) {
+                    showAddExpense = true
                 }
             } else {
                 List {
@@ -99,15 +168,28 @@ struct GroupDetailView: View {
     // MARK: - Members Tab
 
     private var membersTab: some View {
-        List {
-            ForEach(group.activeMembers) { member in
-                MemberRowView(member: member, group: group, modelContext: modelContext)
-            }
+        Group {
+            if group.activeMembers.isEmpty {
+                EmptyStateView(
+                    icon: "person.2",
+                    title: "No Members",
+                    subtitle: "Add members to start splitting expenses.",
+                    actionTitle: "Manage Members"
+                ) {
+                    showManageMembers = true
+                }
+            } else {
+                List {
+                    ForEach(group.activeMembers) { member in
+                        MemberRowView(member: member, group: group, modelContext: modelContext)
+                    }
 
-            Button {
-                showManageMembers = true
-            } label: {
-                Label("Manage Members", systemImage: "person.badge.plus")
+                    Button {
+                        showManageMembers = true
+                    } label: {
+                        Label("Manage Members", systemImage: "person.badge.plus")
+                    }
+                }
             }
         }
     }
@@ -116,20 +198,66 @@ struct GroupDetailView: View {
 
     private var balancesTab: some View {
         let vm = ExpenseViewModel(modelContext: modelContext)
-        return List {
-            ForEach(group.activeMembers) { member in
-                let balance = vm.memberBalance(memberID: member.id, in: group)
-                HStack {
-                    MemberAvatarView(member: member, size: 36)
-                    Text(member.name)
-                    Spacer()
-                    Text(CurrencyFormatter.format(balance, currencyCode: group.defaultCurrencyCode))
-                        .foregroundStyle(balance >= 0 ? .green : .red)
-                        .fontWeight(.semibold)
+        return ScrollView {
+            VStack(spacing: AppSpacing.xl) {
+                // Balance bubbles
+                ScrollView(.horizontal, showsIndicators: false) {
+                    HStack(spacing: AppSpacing.lg) {
+                        ForEach(group.activeMembers) { member in
+                            let balance = vm.memberBalance(memberID: member.id, in: group)
+                            BalanceBubbleView(
+                                member: member,
+                                balance: balance,
+                                currencyCode: group.defaultCurrencyCode
+                            )
+                        }
+                    }
+                    .padding(.horizontal)
                 }
-                .accessibilityLabel("\(member.name), balance: \(CurrencyFormatter.format(balance, currencyCode: group.defaultCurrencyCode))")
+                .padding(.top, AppSpacing.md)
+
+                // Balance list
+                VStack(spacing: 0) {
+                    ForEach(group.activeMembers) { member in
+                        let balance = vm.memberBalance(memberID: member.id, in: group)
+                        HStack {
+                            MemberAvatarView(member: member, size: 36)
+                            Text(member.name)
+                                .font(.body)
+                            Spacer()
+                            Text(CurrencyFormatter.format(balance, currencyCode: group.defaultCurrencyCode))
+                                .foregroundStyle(balance >= 0 ? .green : .red)
+                                .fontWeight(.semibold)
+                        }
+                        .padding(.horizontal)
+                        .padding(.vertical, AppSpacing.md)
+
+                        if member.id != group.activeMembers.last?.id {
+                            Divider().padding(.leading, 56)
+                        }
+                    }
+                }
+                .background(Color(.systemBackground))
+                .clipShape(RoundedRectangle(cornerRadius: AppCornerRadius.lg))
+                .padding(.horizontal)
+
+                // Settle up button
+                if group.expenses.count > 0 {
+                    Button {
+                        showSettleUp = true
+                    } label: {
+                        Label("Settle Up", systemImage: "arrow.left.arrow.right")
+                            .font(.headline)
+                            .frame(maxWidth: .infinity)
+                            .padding(.vertical, AppSpacing.md)
+                    }
+                    .buttonStyle(.borderedProminent)
+                    .padding(.horizontal)
+                }
             }
+            .padding(.bottom, 80) // space for floating button
         }
+        .background(Color(.systemGroupedBackground))
     }
 
     private func deleteExpenses(at offsets: IndexSet) {
@@ -138,6 +266,27 @@ struct GroupDetailView: View {
         }
         try? modelContext.save()
     }
+
+    private func exportCSV() {
+        let csv = ExportService.generateCSV(for: group)
+        let filename = "\(group.name.replacingOccurrences(of: " ", with: "_"))_expenses.csv"
+        if let url = ExportService.writeToTempFile(csv: csv, filename: filename) {
+            exportURL = url
+            showExportShare = true
+        }
+    }
+}
+
+// MARK: - Share Sheet
+
+struct ShareSheet: UIViewControllerRepresentable {
+    let items: [Any]
+
+    func makeUIViewController(context: Context) -> UIActivityViewController {
+        UIActivityViewController(activityItems: items, applicationActivities: nil)
+    }
+
+    func updateUIViewController(_ uiViewController: UIActivityViewController, context: Context) {}
 }
 
 // MARK: - Supporting Views
@@ -146,19 +295,30 @@ struct GroupHeaderView: View {
     let group: ExpenseGroup
 
     var body: some View {
-        VStack(spacing: 8) {
+        VStack(spacing: AppSpacing.sm) {
             Text(group.emoji)
-                .font(.system(size: 48))
+                .font(.system(size: 44))
 
             Text(CurrencyFormatter.format(minorUnits: group.totalExpensesInMinorUnits, currencyCode: group.defaultCurrencyCode))
                 .font(.title2)
                 .fontWeight(.bold)
 
-            Text("\(group.activeMembers.count) members")
-                .font(.subheadline)
-                .foregroundStyle(.secondary)
+            HStack(spacing: AppSpacing.lg) {
+                Label("\(group.activeMembers.count) members", systemImage: "person.2")
+                Label("\(group.expenses.count) expenses", systemImage: "creditcard")
+            }
+            .font(.caption)
+            .foregroundStyle(.secondary)
         }
-        .padding()
+        .padding(.vertical, AppSpacing.md)
+        .frame(maxWidth: .infinity)
+        .background(
+            LinearGradient(
+                colors: [Color(.systemBackground), Color(.systemGroupedBackground)],
+                startPoint: .top,
+                endPoint: .bottom
+            )
+        )
     }
 }
 
@@ -171,12 +331,12 @@ struct ExpenseRowView: View {
     }
 
     var body: some View {
-        HStack(spacing: 12) {
+        HStack(spacing: AppSpacing.md) {
             Text(expense.expenseCategory.emoji)
                 .font(.title3)
-                .frame(width: 36, height: 36)
-                .background(Color.gray.opacity(0.1))
-                .clipShape(Circle())
+                .frame(width: 40, height: 40)
+                .background(Color(.systemGray6))
+                .clipShape(RoundedRectangle(cornerRadius: AppCornerRadius.sm))
 
             VStack(alignment: .leading, spacing: 2) {
                 Text(expense.title)
@@ -208,12 +368,22 @@ struct MemberRowView: View {
         let balance = vm.memberBalance(memberID: member.id, in: group)
 
         HStack {
-            MemberAvatarView(member: member, size: 36)
-            Text(member.name)
-                .font(.body)
+            MemberAvatarView(member: member, size: 40)
+
+            VStack(alignment: .leading, spacing: 2) {
+                Text(member.name)
+                    .font(.body)
+                    .fontWeight(.medium)
+                Text(balance == 0 ? "Settled" : (balance > 0 ? "Is owed" : "Owes"))
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+
             Spacer()
+
             Text(CurrencyFormatter.format(balance, currencyCode: group.defaultCurrencyCode))
                 .font(.subheadline)
+                .fontWeight(.semibold)
                 .foregroundStyle(balance >= 0 ? .green : .red)
         }
     }
